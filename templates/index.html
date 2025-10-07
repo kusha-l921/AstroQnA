@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Astro Q&A</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Astro <span>Q&amp;A</span></h1>
+      <p class="small">Ask astronomy & space questions and answer.</p>
+    </header>
+
+    <div class="card">
+      <h3>Post a new question</h3>
+      <form id="question-form">
+        <input id="q-title" class="input" placeholder="e.g. What's the difference between a meteor and a meteoroid?" required />
+        <div style="margin-top:10px"><button type="submit">Post Question</button></div>
+      </form>
+    </div>
+
+    <div id="questions" class="questions"></div>
+  </div>
+
+  <script>
+    const qsEl = document.getElementById('questions');
+    const qForm = document.getElementById('question-form');
+    const qTitle = document.getElementById('q-title');
+
+    async function fetchQuestions(){
+      const res = await fetch('/api/questions');
+      const data = await res.json();
+      renderQuestions(data);
+    }
+
+    function renderQuestions(list){
+      if(!list.length){
+        qsEl.innerHTML = '<div class="card placeholder">No questions yet — be the first to ask!</div>';
+        return;
+      }
+      qsEl.innerHTML = list.map(q => `
+        <div class="card" data-qid="${q.id}">
+          <div class="q-title">${escapeHtml(q.title)}</div>
+          <div class="small">Asked: ${new Date(q.created_at).toLocaleString()}</div>
+          <div class="answers">
+            ${q.answers.map(a => `
+              <div class="answer" data-aid="${a.id}">
+                <div class="vote">
+                  <button data-action="up" data-aid="${a.id}">▲</button>
+                  <div class="count">${a.votes}</div>
+                  <button data-action="down" data-aid="${a.id}">▼</button>
+                </div>
+                <div class="a-text">
+                  <div>${escapeHtml(a.text)}</div>
+                  <div class="small">Answered: ${new Date(a.created_at).toLocaleString()}</div>
+                </div>
+              </div>
+            `).join('')}
+            <form class="answer-form" data-qid="${q.id}">
+              <textarea rows="2" placeholder="Write an answer..." required class="input"></textarea>
+              <div style="margin-top:8px"><button type="submit">Post Answer</button></div>
+            </form>
+          </div>
+        </div>`).join('');
+
+      document.querySelectorAll('[data-action]').forEach(btn => {
+        btn.onclick = async () => {
+          const aid = btn.getAttribute('data-aid');
+          const action = btn.getAttribute('data-action');
+          await vote(aid, action);
+          await fetchQuestions();
+        };
+      });
+
+      document.querySelectorAll('.answer-form').forEach(form => {
+        form.onsubmit = async ev => {
+          ev.preventDefault();
+          const qid = form.getAttribute('data-qid');
+          const txt = form.querySelector('textarea').value.trim();
+          if(!txt) return;
+          await postAnswer(qid, txt);
+          form.reset();
+          await fetchQuestions();
+        };
+      });
+    }
+
+    async function postQuestion(title){
+      await fetch('/api/questions', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({title})
+      });
+    }
+
+    async function postAnswer(qid, text){
+      await fetch(`/api/questions/${qid}/answers`, {
+        method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text})
+      });
+    }
+
+    async function vote(aid, type){
+      await fetch(`/api/answers/${aid}/vote`, {
+        method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({vote: type})
+      });
+    }
+
+    qForm.onsubmit = async e => {
+      e.preventDefault();
+      const t = qTitle.value.trim();
+      if(!t) return;
+      await postQuestion(t);
+      qTitle.value = '';
+      await fetchQuestions();
+    };
+
+    function escapeHtml(s){
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    fetchQuestions();
+    setInterval(fetchQuestions, 3000);
+  </script>
+</body>
+</html>
